@@ -99,7 +99,7 @@ end)
 -- Events
 
 RegisterNetEvent('qb-crypto:client:SyncReboot', function()
-	Crypto.Exchange.RebootInfo.state = true
+	Config.Crypto.Exchange.RebootInfo.state = true
 	SystemCrashCooldown()
 end)
 
@@ -109,16 +109,16 @@ RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
 end)
 
 RegisterNetEvent('qb-crypto:client:UpdateCryptoWorth', function(crypto, amount, history)
-	Crypto.Worth[crypto] = amount
+	Config.Crypto.Worth[crypto] = amount
 	if history ~= nil then
-		Crypto.History[crypto] = history
+		Config.Crypto.History[crypto] = history
 	end
 end)
 
 RegisterNetEvent('qb-crypto:client:GetRebootState', function(RebootInfo)
 	if RebootInfo.state then
-		Crypto.Exchange.RebootInfo.state = RebootInfo.state
-		Crypto.Exchange.RebootInfo.percentage = RebootInfo.percentage
+		Config.Crypto.Exchange.RebootInfo.state = RebootInfo.state
+		Config.Crypto.Exchange.RebootInfo.percentage = RebootInfo.percentage
 		SystemCrashCooldown()
 	end
 end)
