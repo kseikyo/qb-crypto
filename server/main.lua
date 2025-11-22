@@ -269,6 +269,9 @@ QBCore.Functions.CreateCallback('qb-crypto:server:GetCryptoData', function(sourc
         Worth = Config.Crypto.Worth[name],
         Portfolio = Player.PlayerData.money.crypto,
         WalletId = Player.PlayerData.metadata['walletid'],
+        WalletAddress = Player.PlayerData.metadata['wallet_address'] or nil,
+        Coinbase = Config.Coinbase,
+        TokenPrice = Config.Crypto.Worth['qbit'],
     }
 
     cb(CryptoData)
@@ -325,38 +328,107 @@ QBCore.Functions.CreateCallback('qb-crypto:server:TransferCrypto', function(sour
     data.WalletId = newWalletId
     data.Coins = tonumber(newCoin)
     local Player = QBCore.Functions.GetPlayer(source)
-    if Player.PlayerData.money.crypto >= tonumber(data.Coins) then
-        local query = '%"walletid":"' .. data.WalletId .. '"%'
-        local result = MySQL.query.await('SELECT * FROM `players` WHERE `metadata` LIKE ?', { query })
-        if result[1] ~= nil then
-            local CryptoData = {
-                History = Config.Crypto.History['qbit'],
-                Worth = Config.Crypto.Worth['qbit'],
-                Portfolio = Player.PlayerData.money.crypto - tonumber(data.Coins),
-                WalletId = Player.PlayerData.metadata['walletid'],
-            }
-            Player.Functions.RemoveMoney('crypto', tonumber(data.Coins), 'transfer crypto')
-            TriggerClientEvent('qb-phone:client:AddTransaction', source, Player, data,
-                'You have ' .. tonumber(data.Coins) .. " Qbit('s) transferred!", 'Debit')
-            local Target = QBCore.Functions.GetPlayerByCitizenId(result[1].citizenid)
-
-            if Target ~= nil then
-                Target.Functions.AddMoney('crypto', tonumber(data.Coins), 'transfer crypto')
-                TriggerClientEvent('qb-phone:client:AddTransaction', Target.PlayerData.source, Player, data,
-                    'There are ' .. tonumber(data.Coins) .. " Qbit('s) credited!", 'Credit')
-            else
-                local MoneyData = json.decode(result[1].money)
-                MoneyData.crypto = MoneyData.crypto + tonumber(data.Coins)
-                MySQL.update('UPDATE players SET money = ? WHERE citizenid = ?',
-                    { json.encode(MoneyData), result[1].citizenid })
-            end
-            cb(CryptoData)
-        else
-            cb('notvalid')
-        end
-    else
+    if Player.PlayerData.money.crypto < tonumber(data.Coins) then
         cb('notenough')
+        return
     end
+
+    -- Lookup recipient's on-chain wallet address. Prefer explicit metadata key 'wallet_address'.
+    local recipientWallet = nil
+    -- First try to find by walletid metadata (legacy flow)
+    local queryByWalletId = '%"walletid":"' .. data.WalletId .. '"%'
+    local res = MySQL.query.await('SELECT * FROM `players` WHERE `metadata` LIKE ?', { queryByWalletId })
+    if res[1] ~= nil then
+        local meta = json.decode(res[1].metadata or '{}')
+        recipientWallet = meta['wallet_address'] or meta['walletid'] or nil
+    end
+
+    -- If not found, try to find by a dedicated wallet_address column (if present)
+    if not recipientWallet then
+        local res2 = MySQL.query.await('SELECT * FROM `players` WHERE `wallet_address` = ?', { data.WalletId })
+        if res2[1] ~= nil then
+            recipientWallet = res2[1].wallet_address
+        end
+    end
+
+    if recipientWallet then
+        -- Return the recipient on-chain address to the client so the SDK can initiate the transaction.
+        cb({
+            WalletAddress = recipientWallet,
+            Coins = tonumber(data.Coins),
+            Message = 'recipient_found'
+        })
+    else
+        cb('notvalid')
+    end
+end)
+
+
+-- Save a player's on-chain wallet address (called from client after sign-in via Coinbase SDK)
+RegisterServerEvent('qb-crypto:server:SaveWalletAddress', function(address)
+    local src = source
+    local xPlayer = QBCore.Functions.GetPlayer(src)
+    if not xPlayer then return end
+    local citizenid = xPlayer.PlayerData.citizenid
+
+    -- Update metadata JSON if present
+    local meta = xPlayer.PlayerData.metadata or {}
+    meta['wallet_address'] = address
+    xPlayer.PlayerData.metadata = meta
+
+    -- Persist to DB; try to update metadata column and wallet_address column if available
+    local updatedMeta = json.encode(meta)
+    -- Update metadata
+    MySQL.update('UPDATE players SET metadata = ? WHERE citizenid = ?', { updatedMeta, citizenid })
+    -- Try to update wallet_address column if it exists (safe to run even if column missing)
+    local ok, err = pcall(function()
+        MySQL.update('UPDATE players SET wallet_address = ? WHERE citizenid = ?', { address, citizenid })
+    end)
+    if not ok then
+        print('qb-crypto:server:SaveWalletAddress - wallet_address column not present or update failed: ' .. tostring(err))
+    end
+
+    TriggerClientEvent('QBCore:Notify', src, 'Wallet address saved')
+end)
+
+
+-- Client will call this event after broadcasting the on-chain tx: server can then reconcile in-game balances
+RegisterServerEvent('qb-crypto:server:ConfirmOnchainTransfer', function(targetWallet, coins, txHash)
+    local src = source
+    local sender = QBCore.Functions.GetPlayer(src)
+    if not sender then return end
+    if sender.PlayerData.money.crypto < tonumber(coins) then
+        TriggerClientEvent('QBCore:Notify', src, 'Not enough crypto to confirm transfer', 'error')
+        return
+    end
+
+    -- Find recipient by wallet_address (metadata or dedicated column)
+    local found = nil
+    -- search metadata
+    local query = '%"wallet_address":"' .. targetWallet .. '"%'
+    local res = MySQL.query.await('SELECT * FROM `players` WHERE `metadata` LIKE ?', { query })
+    if res[1] then found = res[1] end
+    if not found then
+        local res2 = MySQL.query.await('SELECT * FROM `players` WHERE wallet_address = ?', { targetWallet })
+        if res2[1] then found = res2[1] end
+    end
+
+    -- Deduct from sender and credit recipient (if found). If recipient offline, update DB money field.
+    sender.Functions.RemoveMoney('crypto', tonumber(coins), 'onchain transfer')
+    if found then
+        local Target = QBCore.Functions.GetPlayerByCitizenId(found.citizenid)
+        if Target then
+            Target.Functions.AddMoney('crypto', tonumber(coins), 'onchain transfer')
+            TriggerClientEvent('qb-phone:client:AddTransaction', Target.PlayerData.source, Target, { Coins = coins }, 'There are ' .. coins .. " Qbit('s) credited!", 'Credit')
+        else
+            local MoneyData = json.decode(found.money)
+            MoneyData.crypto = MoneyData.crypto + tonumber(coins)
+            MySQL.update('UPDATE players SET money = ? WHERE citizenid = ?', { json.encode(MoneyData), found.citizenid })
+        end
+    end
+
+    -- Optionally log the txHash to a table in future. For now, notify sender.
+    TriggerClientEvent('QBCore:Notify', src, 'On-chain transfer confirmed' .. (txHash and (': '..txHash) or ''))
 end)
 
 -- Threads
