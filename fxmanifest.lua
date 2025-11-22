@@ -1,9 +1,9 @@
 fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
-author 'Kakarot'
+author 'kseikyo'
 description 'Provides the logic for handling cryptocurrency aka qbit'
-version '1.2.1'
+version '1.2.2'
 
 shared_scripts {
     '@qb-core/shared/locale.lua',
