@@ -52,5 +52,5 @@ Config.Ticker = {
 Config.Coinbase = {
     ProjectId = 'cbc9bde6-0bf5-4825-b3e7-2ea495657094',        -- Replace with your actual project ID from the Coinbase Cloud dashboard
     Network = 'base-sepolia',                                  -- e.g., 'base-mainnet', 'base-sepolia'
-    TokenContractAddress = 'YOUR_ERC20_TOKEN_CONTRACT_ADDRESS' -- The address of the ERC-20 token contract
+    TokenContractAddress = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' -- The address of the ERC-20 token contract
 }
