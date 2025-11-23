@@ -46,11 +46,10 @@ Config.Ticker = {
     -- e.g. BTC/USD: e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43
     -- e.g. ETH/USD: ffc2da2c0683a044aa167d4b420f18820c8413e1577f3a8af44e4d9492169b76
     PriceFeedId = "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", -- BTC/USD
-    tick_time = 2,                                                                    --- Minutes (Minimum is 2 minutes)
-}
+    tick_time = 2, --- Minutes (Minimum is 2 minutes)
 
-Config.Coinbase = {
-    ProjectId = 'cbc9bde6-0bf5-4825-b3e7-2ea495657094',        -- Replace with your actual project ID from the Coinbase Cloud dashboard
-    Network = 'base-sepolia',                                  -- e.g., 'base-mainnet', 'base-sepolia'
-    TokenContractAddress = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' -- The address of the ERC-20 token contract
+    -- GTA5 Backend Integration
+    -- Set to true to use GTA5 backend API instead of direct Hermes API calls
+    UseBackend = true,
+    BackendURL = "http://localhost:3001", -- GTA5 backend server URL
 }

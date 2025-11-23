@@ -20,26 +20,47 @@ end
 
 local function GetTickerPrice()
     local promise = promise.new()
-    local url = "https://hermes.pyth.network/v2/updates/price/latest?ids[]=" ..
-    Config.Ticker.PriceFeedId .. "&parsed=true"
+
+    -- Choose API endpoint based on configuration
+    local url
+    if Config.Ticker.UseBackend then
+        -- Use GTA5 backend API
+        url = Config.Ticker.BackendURL .. "/api/crypto/price"
+    else
+        -- Use direct Hermes API call
+        url = "https://hermes.pyth.network/v2/updates/price/latest?ids[]=" .. Config.Ticker.PriceFeedId .. "&parsed=true"
+    end
+
     PerformHttpRequest(url, function(err, result, headers)
         if err == 200 then
             local data = json.decode(result)
-            if data and data.parsed and data.parsed[1] and data.parsed[1].price then
-                local priceData = data.parsed[1].price
-                local price = tonumber(priceData.price)
-                local expo = tonumber(priceData.expo)
-                if price and expo then
-                    local finalPrice = price * (10 ^ expo)
-                    promise:resolve({ price = finalPrice })
+
+            if Config.Ticker.UseBackend then
+                -- Parse GTA5 backend response format
+                if data and data.success and data.price then
+                    promise:resolve({price = data.price})
                 else
-                    promise:resolve({ error = "Invalid price or exponent in Hermes API response" })
+                    promise:resolve({error = data.error or "Invalid response from GTA5 backend"})
                 end
             else
-                promise:resolve({ error = "Malformed response from Hermes API" })
+                -- Parse direct Hermes API response format
+                if data and data.parsed and data.parsed[1] and data.parsed[1].price then
+                    local priceData = data.parsed[1].price
+                    local price = tonumber(priceData.price)
+                    local expo = tonumber(priceData.expo)
+                    if price and expo then
+                        local finalPrice = price * (10 ^ expo)
+                        promise:resolve({price = finalPrice})
+                    else
+                        promise:resolve({error = "Invalid price or exponent in Hermes API response"})
+                    end
+                else
+                    promise:resolve({error = "Malformed response from Hermes API"})
+                end
             end
         else
-            promise:resolve({ error = "Failed to fetch price from Hermes API. Status: " .. err })
+            local source = Config.Ticker.UseBackend and "GTA5 backend" or "Hermes API"
+            promise:resolve({error = "Failed to fetch price from " .. source .. ". Status: " .. err})
         end
     end, 'GET')
 
@@ -124,8 +145,7 @@ QBCore.Commands.Add('setcryptoworth', 'Set crypto value',
             local NewWorth = math.ceil(tonumber(args[2]))
 
             if NewWorth ~= nil then
-                local PercentageChange = math.ceil(((NewWorth - Config.Crypto.Worth[crypto]) / Config.Crypto.Worth[crypto]) *
-                100)
+                local PercentageChange = math.ceil(((NewWorth - Config.Crypto.Worth[crypto]) / Config.Crypto.Worth[crypto]) * 100)
                 local ChangeLabel = '+'
 
                 if PercentageChange < 0 then
@@ -328,7 +348,33 @@ QBCore.Functions.CreateCallback('qb-crypto:server:TransferCrypto', function(sour
     data.WalletId = newWalletId
     data.Coins = tonumber(newCoin)
     local Player = QBCore.Functions.GetPlayer(source)
-    if Player.PlayerData.money.crypto < tonumber(data.Coins) then
+    if Player.PlayerData.money.crypto >= tonumber(data.Coins) then
+        local query = '%"walletid":"' .. data.WalletId .. '"%'
+        local result = MySQL.query.await('SELECT * FROM `players` WHERE `metadata` LIKE ?', { query })
+        if result[1] ~= nil then
+            local CryptoData = {
+                History = Config.Crypto.History['qbit'],
+                Worth = Config.Crypto.Worth['qbit'],
+                Portfolio = Player.PlayerData.money.crypto - tonumber(data.Coins),
+                WalletId = Player.PlayerData.metadata['walletid'],
+            }
+            Player.Functions.RemoveMoney('crypto', tonumber(data.Coins), 'transfer crypto')
+            TriggerClientEvent('qb-phone:client:AddTransaction', source, Player, data, 'You have ' .. tonumber(data.Coins) .. " Qbit('s) transferred!", 'Debit')
+            local Target = QBCore.Functions.GetPlayerByCitizenId(result[1].citizenid)
+
+            if Target ~= nil then
+                Target.Functions.AddMoney('crypto', tonumber(data.Coins), 'transfer crypto')
+                TriggerClientEvent('qb-phone:client:AddTransaction', Target.PlayerData.source, Player, data, 'There are ' .. tonumber(data.Coins) .. " Qbit('s) credited!", 'Credit')
+            else
+                local MoneyData = json.decode(result[1].money)
+                MoneyData.crypto = MoneyData.crypto + tonumber(data.Coins)
+                MySQL.update('UPDATE players SET money = ? WHERE citizenid = ?', { json.encode(MoneyData), result[1].citizenid })
+            end
+            cb(CryptoData)
+        else
+            cb('notvalid')
+        end
+    else
         cb('notenough')
         return
     end
