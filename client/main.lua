@@ -36,13 +36,13 @@ end
 
 local function SystemCrashCooldown()
 	CreateThread(function()
-		while Crypto.Exchange.RebootInfo.state do
-			if (Crypto.Exchange.RebootInfo.percentage + 1) <= 100 then
-				Crypto.Exchange.RebootInfo.percentage = Crypto.Exchange.RebootInfo.percentage + 1
-				TriggerServerEvent('qb-crypto:server:Rebooting', true, Crypto.Exchange.RebootInfo.percentage)
+		while Config.Crypto.Exchange.RebootInfo.state do
+			if (Config.Crypto.Exchange.RebootInfo.percentage + 1) <= 100 then
+				Config.Crypto.Exchange.RebootInfo.percentage = Config.Crypto.Exchange.RebootInfo.percentage + 1
+				TriggerServerEvent('qb-crypto:server:Rebooting', true, Config.Crypto.Exchange.RebootInfo.percentage)
 			else
-				Crypto.Exchange.RebootInfo.percentage = 0
-				Crypto.Exchange.RebootInfo.state = false
+				Config.Crypto.Exchange.RebootInfo.percentage = 0
+				Config.Crypto.Exchange.RebootInfo.state = false
 				TriggerServerEvent('qb-crypto:server:Rebooting', false, 0)
 			end
 			Wait(1200)
@@ -56,12 +56,12 @@ CreateThread(function()
 		if LocalPlayer.state.isLoggedIn then
 			local ped = PlayerPedId()
 			local pos = GetEntityCoords(ped)
-			local dist = #(pos - Crypto.Exchange.coords)
+			local dist = #(pos - Config.Crypto.Exchange.coords)
 			if dist < 15 then
 				sleep = 5
 				if dist < 1.5 then
-					if not Crypto.Exchange.RebootInfo.state then
-						DrawText3Ds(Crypto.Exchange.coords, Lang:t('text.enter_usb'))
+					if not Config.Crypto.Exchange.RebootInfo.state then
+						DrawText3Ds(Config.Crypto.Exchange.coords, Lang:t('text.enter_usb'))
 						if not requiredItemsShowed then
 							requiredItemsShowed = true
 							TriggerEvent('qb-inventory:client:requiredItems', requiredItems, true)
@@ -82,7 +82,7 @@ CreateThread(function()
 							end)
 						end
 					else
-						DrawText3Ds(Crypto.Exchange.coords, Lang:t('text.system_is_rebooting', { rebootInfoPercentage = Crypto.Exchange.RebootInfo.percentage }))
+						DrawText3Ds(Config.Crypto.Exchange.coords, Lang:t('text.system_is_rebooting', { rebootInfoPercentage = Crypto.Exchange.RebootInfo.percentage }))
 					end
 				else
 					if requiredItemsShowed then
